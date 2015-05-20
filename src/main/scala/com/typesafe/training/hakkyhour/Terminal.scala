@@ -4,6 +4,7 @@
 
 package com.typesafe.training.hakkyhour
 
+import scala.util.Success
 import scala.util.parsing.combinator.RegexParsers
 
 trait Terminal {

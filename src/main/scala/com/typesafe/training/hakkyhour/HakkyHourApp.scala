@@ -4,11 +4,18 @@
 
 package com.typesafe.training.hakkyhour
 
-import akka.actor.{ ActorRef, ActorSystem }
+import java.util.concurrent.TimeUnit
+
+import akka.actor._
 import akka.event.Logging
+import akka.pattern._
+import akka.util.Timeout
+import com.typesafe.training.hakkyhour.HakkyHour._
 import scala.annotation.tailrec
 import scala.collection.breakOut
+import scala.concurrent.duration.FiniteDuration
 import scala.io.StdIn
+import scala.util.{ Failure, Success }
 
 object HakkyHourApp {
 
@@ -38,14 +45,25 @@ class HakkyHourApp(system: ActorSystem) extends Terminal {
 
   private val hakkyHour = createHakkyHour()
 
+  //one off actor
+  //  system.actorOf(Props(new Actor with ActorLogging {
+  //    hakkyHour ! "Nice bar!"
+  //
+  //    override def receive: Receive = {
+  //      case m => log.info(m.toString)
+  //    }
+  //  }))
+
   def run(): Unit = {
     log.warning(f"{} running%nEnter commands into the terminal, e.g. `q` or `quit`", getClass.getSimpleName)
     commandLoop()
     system.awaitTermination()
   }
 
-  protected def createHakkyHour(): ActorRef =
-    system.deadLetters // TODO Create a HakkyHour top-level actor named "hakky-hour"
+  protected def createHakkyHour(): ActorRef = {
+    val maxDrinkCount = system.settings.config.getInt("hakky-hour.max-drink-count")
+    system.actorOf(HakkyHour.props(maxDrinkCount), "hakky-hour")
+  }
 
   @tailrec
   private def commandLoop(): Unit =
@@ -63,9 +81,25 @@ class HakkyHourApp(system: ActorSystem) extends Terminal {
         commandLoop()
     }
 
-  protected def createGuest(count: Int, drink: Drink, maxDrinkCount: Int): Unit =
-    () // TODO Send CreateGuest to HakkyHour count number of times
+  protected def createGuest(count: Int, drink: Drink, maxDrinkCount: Int): Unit = {
+    for (_ <- 1 to count)
+      hakkyHour ! CreateGuest(drink, maxDrinkCount)
+  }
 
-  protected def getStatus(): Unit =
-    () // TODO Ask HakkyHour for the status and log the result on completion
+  protected def getStatus(): Unit = {
+    import system.dispatcher
+    implicit val timeout: Timeout = FiniteDuration(system.settings.config.getInt("hakky-hour.status-timeout"), "seconds")
+
+    val status = hakkyHour ? HakkyHour.GetStatus
+    status.mapTo[HakkyHour.Status] onComplete {
+      case Success(n) =>
+        val message = s"We have ${n.guestCount} guests."
+        log.info(message)
+        println(message)
+      case Failure(e) =>
+        log.error(e, "Unable to find number of guests...")
+    }
+  }
+
+  // TODO Ask HakkyHour for the status and log the result on completion
 }
